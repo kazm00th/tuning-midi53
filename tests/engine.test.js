@@ -185,3 +185,10 @@ test('placement mode "average" is used for groups', () => {
   const ref = T.placeGroup([4, 8, 11], 'average').points;
   assert.ok(T.same(point(eng, E4), ref.get(4)));
 });
+
+test('forget removes a sounding note without actions', () => {
+  const eng = E.createEngine();
+  play(eng, [C4, E4]);
+  assert.deepEqual(eng.forget(C4), []);
+  assert.deepEqual(eng.sounding().map(n => n.midi), [E4]);
+});

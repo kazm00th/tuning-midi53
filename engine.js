@@ -138,6 +138,8 @@
     return {
       noteOn, noteOff, setPedal, tick,
       reset() { resetPending = true; },
+      // A note the voices had to drop (more than MAX_VOICES): forget it without sending actions.
+      forget(midi) { notes.delete(midi); return []; },
       setSettings(s) { Object.assign(settings, s); },
       settings: () => ({ ...settings }),
       sounding: () => sounding().map(n => ({ ...n })),
