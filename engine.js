@@ -48,6 +48,17 @@
       return best.cand;
     }
 
+    // The chord shown for the sounding notes; keeps the root while the same chord sounds, else derives it
+    // from the earliest sounding note (so a reset group or a release never leaves the root unknown).
+    function refreshChord() {
+      const all = sounding();
+      const r = T.recognize(all.map(n => T.pc(n.p)));
+      if (!r) { lastChord = null; return; }
+      if (lastChord && lastChord.chord === r.chord && T.pc(lastChord.root) === r.rootPc) return;
+      const first = all.reduce((x, y) => (y.order < x.order ? y : x));
+      lastChord = { chord: r.chord, root: T.sub(first.p, r.chord.shape[T.mod(T.pc(first.p) - r.rootPc, 12)]) };
+    }
+
     // §3.3: when the sounding notes form a chord, take the root that leaves the most older notes in place.
     function fixChord(newMidi) {
       const all = sounding();
@@ -64,10 +75,16 @@
       }
       lastChord = { chord: r.chord, root: best.root };
       const actions = [];
+      // A new key on a sounding pitch class follows its twin (§3.1), so it moves only when the twin does.
+      const fresh = notes.get(newMidi);
+      const hasTwin = older.some(n => T.pc(n.p) === T.pc(fresh.p));
       for (const n of all) {
         const ideal = T.add(best.root, shapeOf(n));
         if (T.same(ideal, n.p)) continue;
-        if (n.midi === newMidi) { n.p = ideal; n.s = T.absStep(ideal, n.midi); continue; }
+        if (n.midi === newMidi) {
+          if (!hasTwin || settings.fixMode === 'move') { n.p = ideal; n.s = T.absStep(ideal, n.midi); }
+          continue;
+        }
         if (settings.fixMode !== 'move') continue;
         n.p = ideal; n.s = T.absStep(ideal, n.midi);
         actions.push({ type: 'retune', midi: n.midi, p: n.p, s: n.s });
@@ -82,11 +99,12 @@
       resetPending = false;
       const placed = T.placeGroup(keys.map(x => keyPc(x.midi)), settings.placeMode);
       const actions = keys.map(x => start(add(x.midi, placed.points.get(keyPc(x.midi)), x.vel, !x.released)));
-      const r = T.recognize(sounding().map(n => T.pc(n.p)));
-      lastChord = r ? { chord: r.chord, root: placed.points.get(r.rootPc) || null } : null;
+      lastChord = null;
+      refreshChord();
       for (const x of keys) {
         if (x.released && !pedal) { notes.delete(x.midi); actions.push({ type: 'stop', midi: x.midi }); }
       }
+      refreshChord();
       return actions;
     }
 
@@ -121,6 +139,7 @@
       if (pedal) { n.held = false; return actions; }
       notes.delete(midi);
       actions.push({ type: 'stop', midi });
+      refreshChord();
       return actions;
     }
 
@@ -131,6 +150,7 @@
         for (const n of sounding()) {
           if (!n.held) { notes.delete(n.midi); actions.push({ type: 'stop', midi: n.midi }); }
         }
+        refreshChord();
       }
       return actions;
     }
@@ -139,7 +159,7 @@
       noteOn, noteOff, setPedal, tick,
       reset() { resetPending = true; },
       // A note the voices had to drop (more than MAX_VOICES): forget it without sending actions.
-      forget(midi) { notes.delete(midi); return []; },
+      forget(midi) { notes.delete(midi); refreshChord(); return []; },
       setSettings(s) { Object.assign(settings, s); },
       settings: () => ({ ...settings }),
       sounding: () => sounding().map(n => ({ ...n })),

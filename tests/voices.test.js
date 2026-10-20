@@ -109,3 +109,21 @@ test('onEvict is called with the id of the voice stopped by the 25th start', () 
   for (let i = 0; i < 25; i++) v.start(30 + i, i, 100);
   assert.deepEqual(evicted, [30]);
 });
+
+test('stop right after start ramps down from the level reached so far, not from the target or 1', () => {
+  const ctx = fakeContext();
+  const v = V.createVoices(ctx);
+  v.start(60, 0, 127);
+  const g = ctx.gains[0].gain;
+  g.value = 1;                 // a real AudioParam may still report its intrinsic value here
+  v.stop(60);                  // same instant: nothing has been heard yet
+  assert.deepEqual(g.events.slice(-2), [['set', 0, 2], ['ramp', 0, 2.01]]);
+  v.start(61, 0, 127);
+  const h = ctx.gains[1].gain;
+  h.value = 1;
+  ctx.currentTime = 2.005;     // halfway up the 10 ms ramp
+  v.stop(61);
+  const set = h.events[h.events.length - 2];
+  assert.equal(set[0], 'set');
+  near(set[1], 0.8 * V.NOTE_GAIN / 2);
+});

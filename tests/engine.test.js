@@ -192,3 +192,35 @@ test('forget removes a sounding note without actions', () => {
   assert.deepEqual(eng.forget(C4), []);
   assert.deepEqual(eng.sounding().map(n => n.midi), [E4]);
 });
+
+test('a reset group that completes a chord with sounding notes still reports its root', () => {
+  const eng = E.createEngine();
+  let { t } = play(eng, [C4, E4]);
+  eng.reset();
+  eng.noteOn(G4, 100, (t += 0.05));
+  eng.tick((t += 0.05));
+  const c = eng.chord();
+  assert.equal(c.chord.name, '長三和音');
+  assert.ok(c.root, 'root must not be null');
+  assert.equal(T.pc(c.root), 0);
+  assert.ok(T.same(T.sub(point(eng, G4), c.root), P(1, 0)));
+});
+
+test('"keep": a new key of a sounding pitch class stays on its twin even when the chord would move it', () => {
+  const eng = E.createEngine({ fixMode: 'keep' });
+  let { t } = play(eng, [C4, D4, F4, A4]);
+  eng.noteOn(D4 + 12, 100, (t += 0.05));
+  assert.ok(T.same(point(eng, D4 + 12), point(eng, D4)));
+  assert.equal(stepOf(eng, D4 + 12), stepOf(eng, D4) + 53);
+});
+
+test('the reported chord follows the sounding notes when keys are released', () => {
+  const eng = E.createEngine();
+  let { t } = play(eng, [C4, E4, G4]);
+  assert.equal(eng.chord().chord.name, '長三和音');
+  eng.noteOff(G4, (t += 0.05));
+  assert.equal(eng.chord(), null);
+  eng.noteOn(G4, 100, (t += 0.05));
+  eng.noteOff(C4, (t += 0.05)); eng.noteOff(E4, (t += 0.05)); eng.noteOff(G4, (t += 0.05));
+  assert.equal(eng.chord(), null);
+});

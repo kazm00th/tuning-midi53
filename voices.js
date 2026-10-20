@@ -10,10 +10,18 @@
     for (let n = 1; n <= h; n++) imag[n] = (n % 2 ? 1 : -1) / n;
     return { real, imag };
   }
-  function rampTo(param, value, at) {
-    param.cancelScheduledValues(at);
-    param.setValueAtTime(param.value, at);
-    param.linearRampToValueAtTime(value, at + RAMP);
+  // A voice's level at time `at`, from the ramp it is on. AudioParam.value cannot be trusted for this:
+  // it reports the last rendered (or intrinsic) value, which is 1 for a gain created a moment ago.
+  function levelAt(v, at) {
+    if (at >= v.t0 + RAMP) return v.to;
+    return v.from + (v.to - v.from) * Math.max(0, at - v.t0) / RAMP;
+  }
+  function rampTo(v, value, at) {
+    const from = levelAt(v, at);
+    v.gain.gain.cancelScheduledValues(at);
+    v.gain.gain.setValueAtTime(from, at);
+    v.gain.gain.linearRampToValueAtTime(value, at + RAMP);
+    Object.assign(v, { from, to: value, t0: at });
   }
 
   function createVoices(context, destination = context.destination) {
@@ -35,7 +43,7 @@
       const v = voices.get(id);
       if (!v) return;
       const at = context.currentTime;
-      rampTo(v.gain.gain, 0, at);
+      rampTo(v, 0, at);
       v.osc.stop(at + RAMP);
       voices.delete(id);
     }
@@ -57,7 +65,7 @@
       osc.connect(gain);
       gain.connect(limiter);
       osc.start(at);
-      voices.set(id, { osc, gain, s, vel, serial: serial++ });
+      voices.set(id, { osc, gain, s, vel, serial: serial++, from: 0, to: level(vel), t0: at });
     }
     function retune(id, s) {
       const v = voices.get(id);
@@ -74,7 +82,7 @@
       if (!Number.isFinite(x) || x < 0) return;
       volume = x;
       const at = context.currentTime;
-      for (const v of voices.values()) rampTo(v.gain.gain, level(v.vel), at);
+      for (const v of voices.values()) rampTo(v, level(v.vel), at);
     }
     function apply(actions) {
       for (const a of actions) {

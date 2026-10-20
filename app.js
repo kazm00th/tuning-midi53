@@ -72,31 +72,36 @@
   }
 
   // ---------------------------------------------------------------- MIDI
-  const midiHeld = new Map();   // input id -> Set of midi notes it holds
+  const midiHeld = new Map();   // input id -> { notes: Set of midi notes it holds, pedal: boolean }
   let midiAccess = null, currentInput = null;
 
-  // Also used by the browser checks with a fake input ({ id, state, onmidimessage }).
+  // Also used by the browser checks with a fake input ({ id, onmidimessage }).
   function attachMidiInput(input) {
-    if (currentInput) currentInput.onmidimessage = null;
+    if (currentInput && currentInput !== input) {
+      currentInput.onmidimessage = null;
+      deviceGone(currentInput.id);   // what the old input held would never be let go
+    }
     currentInput = input;
     if (!input) return;
     input.onmidimessage = msg => {
       const ev = Input.parseMidi(Array.from(msg.data));
       if (!ev) return;
       ensureAudioIfAllowed();
-      const held = midiHeld.get(input.id) || new Set();
+      const held = midiHeld.get(input.id) || { notes: new Set(), pedal: false };
       midiHeld.set(input.id, held);
-      if (ev.type === 'on') held.add(ev.midi);
-      if (ev.type === 'off') held.delete(ev.midi);
+      if (ev.type === 'on') held.notes.add(ev.midi);
+      if (ev.type === 'off') held.notes.delete(ev.midi);
+      if (ev.type === 'pedal') held.pedal = ev.down;
       handle(ev);
     };
   }
-  // Spec Review Focus 4: a device that goes away releases every key it was holding.
+  // Spec Review Focus 4: a device that goes away releases every key it was holding, and its pedal.
   function deviceGone(id) {
     const held = midiHeld.get(id);
     if (!held) return;
-    for (const midi of held) handle({ type: 'off', midi });
     midiHeld.delete(id);
+    for (const midi of held.notes) handle({ type: 'off', midi });
+    if (held.pedal) handle({ type: 'pedal', down: false });
   }
   App.deviceGone = deviceGone;
   // MIDI messages are not a user gesture; sound only once the page has been allowed to start audio.
